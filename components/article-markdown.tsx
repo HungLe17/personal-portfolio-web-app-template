@@ -43,7 +43,23 @@ function parseAlignedMarkdown(content: string) {
   return blocks;
 }
 
+function containsHtml(content: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(content);
+}
+
+function sanitizeHtml(content: string) {
+  return content
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+="[^"]*"/gi, "")
+    .replace(/\son\w+='[^']*'/gi, "")
+    .replace(/\s(href|src)=["']javascript:[^"']*["']/gi, "");
+}
+
 export function ArticleMarkdown({ content }: { content: string }) {
+  if (containsHtml(content)) {
+    return <div className="rich-article" dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }} />;
+  }
+
   const blocks = parseAlignedMarkdown(content);
 
   return (

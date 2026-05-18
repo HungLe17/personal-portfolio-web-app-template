@@ -4,7 +4,6 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { deleteContentAction, saveContentAction } from "@/app/actions";
-import { ArticleMarkdown } from "@/components/article-markdown";
 import type { ContentItem, ContentType } from "@/lib/types";
 import { slugify } from "@/lib/slug";
 
@@ -17,19 +16,27 @@ const tabs: { label: string; value: ContentType }[] = [
 
 const initialState = { ok: true, message: "" };
 
-const editorTools = [
-  { label: "H2", before: "## ", after: "", fallback: "Section heading" },
-  { label: "H3", before: "### ", after: "", fallback: "Subheading" },
-  { label: "B", before: "**", after: "**", fallback: "bold text" },
-  { label: "I", before: "*", after: "*", fallback: "italic text" },
-  { label: "UL", before: "- ", after: "", fallback: "List item" },
-  { label: "OL", before: "1. ", after: "", fallback: "List item" },
-  { label: "Quote", before: "> ", after: "", fallback: "Quoted insight" },
-  { label: "Code", before: "`", after: "`", fallback: "code" },
-  { label: "Block", before: "```\n", after: "\n```", fallback: "code block" },
-  { label: "Link", before: "[", after: "](https://example.com)", fallback: "link text" },
-  { label: "Divider", before: "\n\n---\n\n", after: "", fallback: "" }
-];
+function looksLikeHtml(content: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(content);
+}
+
+function escapeHtml(content: string) {
+  return content
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function bodyToEditorHtml(content: string) {
+  if (!content) return "";
+  if (looksLikeHtml(content)) return content;
+  return content
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
 
 export function AdminEditor({ items }: { items: ContentItem[] }) {
   const router = useRouter();
@@ -38,7 +45,8 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [body, setBody] = useState("");
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const bodyInputRef = useRef<HTMLInputElement | null>(null);
   const [state, formAction] = useActionState(saveContentAction, initialState);
 
   const activeItems = useMemo(
@@ -56,7 +64,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     setSelected(item);
     setTitle(item.title);
     setSlug(item.slug);
-    setBody(item.body || "");
+    setBody(bodyToEditorHtml(item.body || ""));
   }
 
   function newItem() {
@@ -66,56 +74,33 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     setBody("");
   }
 
-  function updateBody(nextBody: string, cursorPosition?: number) {
-    setBody(nextBody);
-    requestAnimationFrame(() => {
-      const textarea = bodyRef.current;
-      if (!textarea) return;
-      textarea.focus();
-      if (typeof cursorPosition === "number") {
-        textarea.setSelectionRange(cursorPosition, cursorPosition);
-      }
-    });
+  function syncEditorBody() {
+    if (bodyInputRef.current) {
+      bodyInputRef.current.value = editorRef.current?.innerHTML || "";
+    }
   }
 
-  function insertMarkdown(before: string, after: string, fallback: string) {
-    const textarea = bodyRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = body.slice(start, end) || fallback;
-    const nextBody = `${body.slice(0, start)}${before}${selectedText}${after}${body.slice(end)}`;
-    const cursorPosition = start + before.length + selectedText.length + after.length;
-
-    updateBody(nextBody, cursorPosition);
+  function runEditorCommand(command: string, value?: string) {
+    editorRef.current?.focus();
+    document.execCommand(command, false, value);
+    syncEditorBody();
   }
 
-  function alignSelection(align: "left" | "center" | "right") {
-    const textarea = bodyRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = body.slice(start, end) || "Aligned paragraph";
-    const wrapped = `::: align-${align}\n${selectedText}\n:::`;
-    const nextBody = `${body.slice(0, start)}${wrapped}${body.slice(end)}`;
-    updateBody(nextBody, start + wrapped.length);
+  function formatBlock(tag: "p" | "h2" | "h3" | "blockquote" | "pre") {
+    runEditorCommand("formatBlock", tag);
   }
 
-  function insertImageMarkdown(source: string, alt = "Image") {
-    const textarea = bodyRef.current;
-    const start = textarea?.selectionStart ?? body.length;
-    const imageMarkdown = `\n\n![${alt}](${source})\n\n`;
-    updateBody(`${body.slice(0, start)}${imageMarkdown}${body.slice(start)}`, start + imageMarkdown.length);
+  function insertLink() {
+    const url = window.prompt("Link URL");
+    if (url) runEditorCommand("createLink", url);
   }
 
   function insertImageUrl() {
     const source = window.prompt("Image URL");
-    if (source) insertImageMarkdown(source, "Image");
+    if (source) runEditorCommand("insertImage", source);
   }
 
-  function handleEditorPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+  function handleEditorPaste(event: ClipboardEvent<HTMLDivElement>) {
     const imageItem = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"));
     if (!imageItem) return;
 
@@ -126,7 +111,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === "string") {
-        insertImageMarkdown(reader.result, file.name.replace(/\.[^.]+$/, "") || "Pasted image");
+        runEditorCommand("insertImage", reader.result);
       }
     };
     reader.readAsDataURL(file);
@@ -212,47 +197,76 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
         </label>
         <div className="editor-shell">
           <div className="editor-topbar">
-            <label htmlFor="article-body">Article Body</label>
-            <div className="editor-tools" aria-label="Markdown formatting tools">
-              {editorTools.map((tool) => (
-                <button
-                  className="mini-button editor-tool"
-                  key={tool.label}
-                  onClick={() => insertMarkdown(tool.before, tool.after, tool.fallback)}
-                  type="button"
-                >
-                  {tool.label}
-                </button>
-              ))}
-              <button className="mini-button editor-tool" onClick={() => alignSelection("left")} type="button">
+            <label htmlFor="article-body">Article Editor</label>
+            <div className="editor-tools" aria-label="Rich text formatting tools">
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => formatBlock("p")} type="button">
+                Text
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => formatBlock("h2")} type="button">
+                H2
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => formatBlock("h3")} type="button">
+                H3
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("bold")} type="button">
+                B
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("italic")} type="button">
+                I
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("underline")} type="button">
+                U
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("insertUnorderedList")} type="button">
+                List
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("insertOrderedList")} type="button">
+                1.
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => formatBlock("blockquote")} type="button">
+                Quote
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => formatBlock("pre")} type="button">
+                Code
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("justifyLeft")} type="button">
                 Left
               </button>
-              <button className="mini-button editor-tool" onClick={() => alignSelection("center")} type="button">
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("justifyCenter")} type="button">
                 Center
               </button>
-              <button className="mini-button editor-tool" onClick={() => alignSelection("right")} type="button">
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("justifyRight")} type="button">
                 Right
               </button>
-              <button className="mini-button editor-tool" onClick={insertImageUrl} type="button">
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={insertLink} type="button">
+                Link
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("insertHorizontalRule")} type="button">
+                Line
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={insertImageUrl} type="button">
                 Image
+              </button>
+              <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("removeFormat")} type="button">
+                Clear
               </button>
             </div>
           </div>
-          <div className="editor-grid">
-            <textarea
-              id="article-body"
-              name="body"
-              ref={bodyRef}
-              rows={16}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              onPaste={handleEditorPaste}
-              placeholder={"## Project overview\n\nWrite formatted Markdown here. Use headings, lists, links, quotes, and code snippets."}
-            />
-            <div className="editor-preview detail-body" aria-label="Article preview">
-              {body ? <ArticleMarkdown content={body} /> : <p>Preview appears here while you write.</p>}
-            </div>
-          </div>
+          <input name="body" type="hidden" defaultValue={body} ref={bodyInputRef} />
+          <div
+            id="article-body"
+            className="word-editor"
+            contentEditable
+            dangerouslySetInnerHTML={{ __html: body }}
+            onBlur={syncEditorBody}
+            onInput={syncEditorBody}
+            onPaste={handleEditorPaste}
+            ref={editorRef}
+            role="textbox"
+            aria-label="Article body rich text editor"
+            data-placeholder="Start writing your article. Paste images, use the toolbar, and format it like a document."
+            suppressContentEditableWarning
+          />
         </div>
         <label>
           Tags
