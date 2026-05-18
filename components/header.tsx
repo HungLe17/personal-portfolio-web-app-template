@@ -16,11 +16,13 @@ export function Header() {
   const router = useRouter();
   const [hidden, setHidden] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [navEngaged, setNavEngaged] = useState(false);
   const [activeState, setActiveState] = useState("is-work");
   const sectionMap = useMemo(() => new Map(navItems.map((item) => [item.href.replace("/#", ""), item.state])), []);
 
   useEffect(() => {
     let lastY = window.scrollY;
+    let distanceSinceToggle = 0;
     let ticking = false;
 
     function update() {
@@ -29,8 +31,23 @@ export function Header() {
       const nearTop = currentY < 80;
 
       setCompact(currentY > 24);
-      if (nearTop || delta < -4) setHidden(false);
-      else if (delta > 6) setHidden(true);
+
+      if (nearTop) {
+        distanceSinceToggle = 0;
+        setHidden(false);
+      } else if (delta < -1) {
+        distanceSinceToggle = Math.min(distanceSinceToggle, 0) + delta;
+        if (distanceSinceToggle <= -10) {
+          setHidden(false);
+          distanceSinceToggle = 0;
+        }
+      } else if (delta > 1) {
+        distanceSinceToggle = Math.max(distanceSinceToggle, 0) + delta;
+        if (distanceSinceToggle >= 34) {
+          setHidden(true);
+          distanceSinceToggle = 0;
+        }
+      }
 
       lastY = currentY;
       ticking = false;
@@ -76,12 +93,24 @@ export function Header() {
     return () => observer.disconnect();
   }, [sectionMap]);
 
-  const headerClass = ["site-header glass-panel", hidden ? "header-hidden" : "", compact ? "header-compact" : ""]
+  const headerClass = [
+    "site-header glass-panel",
+    hidden && !navEngaged ? "header-hidden" : "",
+    compact ? "header-compact" : ""
+  ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <header className={headerClass}>
+    <header
+      className={headerClass}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setNavEngaged(false);
+      }}
+      onFocus={() => setNavEngaged(true)}
+      onMouseEnter={() => setNavEngaged(true)}
+      onMouseLeave={() => setNavEngaged(false)}
+    >
       <Link className="brand" href="/" aria-label="Back to home">
         <span className="brand-mark">P</span>
         <span>Portfolio</span>

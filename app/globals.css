@@ -291,8 +291,8 @@ button {
   border-radius: var(--radius);
   transform: translate3d(0, 0, 0);
   transition:
-    transform 520ms var(--ease-out),
-    opacity 360ms ease,
+    transform 420ms var(--ease-out),
+    opacity 260ms ease,
     border-color 260ms ease,
     box-shadow 260ms ease;
   will-change: transform, opacity;
@@ -300,9 +300,9 @@ button {
 }
 
 .site-header.header-hidden {
-  opacity: 0;
+  opacity: 0.02;
   pointer-events: none;
-  transform: translate3d(0, calc(-100% - 34px), 0);
+  transform: translate3d(0, calc(-100% - 34px), 0) scale(0.985);
 }
 
 .site-header.header-compact {
