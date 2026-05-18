@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipboardEvent } from "react";
+import type { ClipboardEvent, MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { deleteContentAction, saveContentAction } from "@/app/actions";
 import type { ContentItem, ContentType } from "@/lib/types";
@@ -45,6 +45,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [body, setBody] = useState("");
+  const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const bodyInputRef = useRef<HTMLInputElement | null>(null);
   const [state, formAction] = useActionState(saveContentAction, initialState);
@@ -80,6 +81,16 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     }
   }
 
+  function insertImageElement(source: string, alt = "Article image") {
+    editorRef.current?.focus();
+    document.execCommand(
+      "insertHTML",
+      false,
+      `<p><img class="note-image align-center size-wide" src="${source}" alt="${escapeHtml(alt)}"></p><p><br></p>`
+    );
+    syncEditorBody();
+  }
+
   function runEditorCommand(command: string, value?: string) {
     editorRef.current?.focus();
     document.execCommand(command, false, value);
@@ -97,7 +108,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
 
   function insertImageUrl() {
     const source = window.prompt("Image URL");
-    if (source) runEditorCommand("insertImage", source);
+    if (source) insertImageElement(source);
   }
 
   function handleEditorPaste(event: ClipboardEvent<HTMLDivElement>) {
@@ -110,11 +121,44 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     event.preventDefault();
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string") {
-        runEditorCommand("insertImage", reader.result);
-      }
+      if (typeof reader.result !== "string") return;
+
+      const image = new Image();
+      image.onload = () => {
+        const maxWidth = 1400;
+        const scale = Math.min(1, maxWidth / image.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        insertImageElement(canvas.toDataURL("image/jpeg", 0.86), file.name.replace(/\.[^.]+$/, "") || "Pasted image");
+      };
+      image.src = reader.result;
     };
     reader.readAsDataURL(file);
+  }
+
+  function handleEditorClick(event: MouseEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (target instanceof HTMLImageElement) {
+      setSelectedImage(target);
+      editorRef.current?.querySelectorAll("img.is-selected").forEach((image) => image.classList.remove("is-selected"));
+      target.classList.add("is-selected");
+      return;
+    }
+
+    setSelectedImage(null);
+    editorRef.current?.querySelectorAll("img.is-selected").forEach((image) => image.classList.remove("is-selected"));
+  }
+
+  function updateImageFigure(className: string) {
+    if (!selectedImage) return;
+
+    selectedImage.classList.remove("align-left", "align-center", "align-right", "size-medium", "size-wide", "size-full");
+    className.split(" ").forEach((name) => selectedImage.classList.add(name));
+    syncEditorBody();
   }
 
   return (
@@ -247,6 +291,42 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
               <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={insertImageUrl} type="button">
                 Image
               </button>
+              <button
+                className="mini-button editor-tool"
+                disabled={!selectedImage}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => updateImageFigure("align-left size-medium")}
+                type="button"
+              >
+                Img Left
+              </button>
+              <button
+                className="mini-button editor-tool"
+                disabled={!selectedImage}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => updateImageFigure("align-center size-wide")}
+                type="button"
+              >
+                Img Center
+              </button>
+              <button
+                className="mini-button editor-tool"
+                disabled={!selectedImage}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => updateImageFigure("align-right size-medium")}
+                type="button"
+              >
+                Img Right
+              </button>
+              <button
+                className="mini-button editor-tool"
+                disabled={!selectedImage}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => updateImageFigure("align-center size-full")}
+                type="button"
+              >
+                Img Full
+              </button>
               <button className="mini-button editor-tool" onMouseDown={(event) => event.preventDefault()} onClick={() => runEditorCommand("removeFormat")} type="button">
                 Clear
               </button>
@@ -259,6 +339,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
             contentEditable
             dangerouslySetInnerHTML={{ __html: body }}
             onBlur={syncEditorBody}
+            onClick={handleEditorClick}
             onInput={syncEditorBody}
             onPaste={handleEditorPaste}
             ref={editorRef}

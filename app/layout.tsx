@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { LiquidBackground } from "@/components/liquid-background";
 import { Header } from "@/components/header";
+import { BackToTop } from "@/components/back-to-top";
 
 export const metadata: Metadata = {
   title: "Portfolio | Liquid Glass",
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <div className="grain" aria-hidden="true" />
         <Header />
         {children}
+        <BackToTop />
       </body>
     </html>
   );

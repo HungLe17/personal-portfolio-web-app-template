@@ -20,8 +20,8 @@ export function Reveal({ as = "div", children, className, id }: RevealProps) {
       id={id}
       initial={{ opacity: 0.55, y: 14 }}
       whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: false, amount: 0.08, margin: "-12% 0px -12% 0px" }}
-      transition={{ duration: 0.78, ease: [0.16, 1, 0.3, 1] }}
+      viewport={{ once: true, amount: 0.12, margin: "-8% 0px" }}
+      transition={{ duration: 0.56, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
     </Component>
