@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, hasSupabaseEnv } from "./supabase/server";
 import { seedContent } from "./seed";
 import type { ContentItem, ContentType } from "./types";
@@ -24,7 +25,12 @@ export async function getContentItems(options?: { includeUnpublished?: boolean }
     return seedContent.filter((item) => options?.includeUnpublished || item.is_published);
   }
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = options?.includeUnpublished
+    ? await createSupabaseServerClient()
+    : createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+
   if (!supabase) return seedContent;
 
   let query = supabase.from("content_items").select("*").order("sort_order", { ascending: true });

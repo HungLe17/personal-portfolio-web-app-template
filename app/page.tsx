@@ -1,15 +1,13 @@
 import Link from "next/link";
 import { CardGrid } from "@/components/card-grid";
 import { Reveal } from "@/components/reveal";
-import { getContentByType, getContentItems, findIntro } from "@/lib/content";
+import { getContentItems, findIntro } from "@/lib/content";
 
 export default async function HomePage() {
-  const [allItems, sections, projects, posts] = await Promise.all([
-    getContentItems(),
-    getContentByType("section"),
-    getContentByType("project"),
-    getContentByType("post")
-  ]);
+  const allItems = await getContentItems();
+  const sections = allItems.filter((item) => item.type === "section").sort((a, b) => a.sort_order - b.sort_order);
+  const projects = allItems.filter((item) => item.type === "project").sort((a, b) => a.sort_order - b.sort_order);
+  const posts = allItems.filter((item) => item.type === "post").sort((a, b) => a.sort_order - b.sort_order);
 
   const hero = findIntro(allItems, "hero");
   const contact = findIntro(allItems, "contact");

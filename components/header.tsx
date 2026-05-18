@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const navItems = [
   { href: "/#work", label: "Work", state: "is-work" },
@@ -13,6 +13,7 @@ const navItems = [
 
 export function Header() {
   const pathname = usePathname();
+  const router = useRouter();
   const [hidden, setHidden] = useState(false);
   const [compact, setCompact] = useState(false);
   const [activeState, setActiveState] = useState("is-work");
@@ -92,7 +93,10 @@ export function Header() {
             href={item.href}
             key={item.href}
             onFocus={() => setActiveState(item.state)}
-            onMouseEnter={() => setActiveState(item.state)}
+            onMouseEnter={() => {
+              setActiveState(item.state);
+              router.prefetch("/");
+            }}
           >
             {item.label}
           </Link>

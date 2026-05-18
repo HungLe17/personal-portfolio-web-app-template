@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import ReactMarkdown from "react-markdown";
+import { ArticleMarkdown } from "@/components/article-markdown";
 import type { ContentItem } from "@/lib/types";
 
 export function ArticlePage({ item, label }: { item: ContentItem; label: string }) {
@@ -23,7 +23,7 @@ export function ArticlePage({ item, label }: { item: ContentItem; label: string 
           <h1>{item.title}</h1>
           <p className="detail-description">{item.description}</p>
           <div className="detail-body">
-            <ReactMarkdown>{item.body || item.description}</ReactMarkdown>
+            <ArticleMarkdown content={item.body || item.description} />
           </div>
           <div className="tag-row">
             {item.tags.map((tag) => (
