@@ -59,6 +59,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   }
 
   const items = demoMode ? seedContent : await getContentItems({ includeUnpublished: true });
+  const username = demoMode ? "dev" : user?.email?.split("@")[0] || user?.email || "admin";
 
   return (
     <main className="admin-page admin-workspace-page">
@@ -84,7 +85,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             </button>
           </form>
         </div>
-        <AdminEditor items={items} />
+        <AdminEditor items={items} username={username} />
       </section>
     </main>
   );

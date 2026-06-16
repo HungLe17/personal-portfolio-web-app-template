@@ -103,7 +103,9 @@ export async function saveContentAction(_state: ContentFormState, formData: Form
       ? true
       : publishAction === "draft"
         ? false
-        : boolFromForm(formData.get("is_published"));
+        : publishAction === "autosave" && !id
+          ? false
+          : boolFromForm(formData.get("is_published"));
 
   if (!title) return { ok: false, message: "Add a title before saving." };
   if (!slug) return { ok: false, message: "Add a valid slug before saving." };
@@ -138,7 +140,14 @@ export async function saveContentAction(_state: ContentFormState, formData: Form
   revalidatePath(`/${type === "project" ? "projects" : type === "post" ? "posts" : "sections"}/${slug}`);
   return {
     ok: true,
-    message: isPublished ? "Published to Supabase." : "Saved as draft.",
+    message:
+      publishAction === "autosave"
+        ? id
+          ? "Autosaved."
+          : "Autosaved as draft."
+        : isPublished
+          ? "Published to Supabase."
+          : "Saved as draft.",
     item: data as ContentItem
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { AlertCircle, CheckCircle2, Loader2, Rocket, Save } from "lucide-react";
+import { useActionState, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AlertCircle, CheckCircle2, Cloud, Loader2, Rocket, Save, UserCircle2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -34,7 +34,7 @@ function EditorSubmitButton({
 }: {
   children: React.ReactNode;
   icon: React.ReactNode;
-  intent: "save" | "draft" | "publish";
+  intent: "save" | "draft" | "publish" | "autosave";
   variant?: "primary" | "secondary";
 }) {
   const { pending } = useFormStatus();
@@ -53,7 +53,11 @@ function EditorSubmitButton({
   );
 }
 
-export function AdminEditor({ items }: { items: ContentItem[] }) {
+function buildSnapshot(type: ContentType, id: string, title: string, slug: string, body: string) {
+  return JSON.stringify({ type, id, title: title.trim(), slug: slug.trim(), body });
+}
+
+export function AdminEditor({ items, username }: { items: ContentItem[]; username: string }) {
   const initialItem =
     items
       .filter((item) => item.type === "project")
@@ -66,6 +70,12 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
   const [body, setBody] = useState(initialItem?.body || "");
   const [state, formAction] = useActionState(saveContentAction, initialState);
   const [notice, setNotice] = useState<ContentFormState>(initialState);
+  const [dirty, setDirty] = useState(false);
+  const [autosaveState, setAutosaveState] = useState<"idle" | "queued" | "saving" | "saved">("idle");
+  const autosaveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const lastSubmittedSnapshot = useRef(
+    buildSnapshot("project", initialItem?.id || "", initialItem?.title || "", initialItem?.slug || "", initialItem?.body || "")
+  );
 
   const activeItems = useMemo(
     () => items.filter((item) => item.type === activeType).sort((a, b) => a.sort_order - b.sort_order),
@@ -83,6 +93,9 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
       setTitle(state.item.title);
       setSlug(state.item.slug);
       setBody(state.item.body || "");
+      setDirty(false);
+      setAutosaveState("saved");
+      lastSubmittedSnapshot.current = buildSnapshot(state.item.type, state.item.id, state.item.title, state.item.slug, state.item.body || "");
       router.refresh();
     }
   }, [router, state]);
@@ -98,6 +111,9 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     setTitle(item.title);
     setSlug(item.slug);
     setBody(item.body || "");
+    setDirty(false);
+    setAutosaveState("idle");
+    lastSubmittedSnapshot.current = buildSnapshot(item.type, item.id, item.title, item.slug, item.body || "");
   }
 
   function newItem() {
@@ -105,7 +121,35 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
     setTitle("");
     setSlug("");
     setBody("");
+    setDirty(false);
+    setAutosaveState("idle");
+    lastSubmittedSnapshot.current = buildSnapshot(activeType, "", "", "", "");
   }
+
+  function markDirty() {
+    setDirty(true);
+    setAutosaveState("queued");
+  }
+
+  useEffect(() => {
+    if (!dirty || !title.trim()) return;
+
+    const timer = window.setTimeout(() => {
+      const id = selected?.id || "";
+      const snapshot = buildSnapshot(activeType, id, title, slug, body);
+      if (snapshot === lastSubmittedSnapshot.current) {
+        setDirty(false);
+        setAutosaveState("saved");
+        return;
+      }
+
+      setAutosaveState("saving");
+      lastSubmittedSnapshot.current = snapshot;
+      autosaveButtonRef.current?.click();
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [activeType, body, dirty, selected?.id, slug, title]);
 
   return (
     <div className="admin-editor">
@@ -168,7 +212,12 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
         </div>
       </aside>
 
-      <form action={formAction} className="content-form editor-surface" key={selected?.id || `new-${activeType}`}>
+      <form
+        action={formAction}
+        className="content-form editor-surface"
+        key={selected?.id || `new-${activeType}`}
+        onInput={markDirty}
+      >
         <div className="editor-workbar">
           <div className="editor-document-heading">
             <p className="eyebrow">{selected ? "Editing" : "Creating"}</p>
@@ -182,8 +231,25 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
               onChange={(event) => {
                 setTitle(event.target.value);
                 if (!selected) setSlug(slugify(event.target.value));
+                markDirty();
               }}
             />
+            <div className="editor-identity-row">
+              <span className="logged-in-chip">
+                <UserCircle2 aria-hidden="true" size={14} />
+                Logged in as {username}
+              </span>
+              <span className={`autosave-chip is-${autosaveState}`}>
+                <Cloud aria-hidden="true" size={14} />
+                {autosaveState === "saving"
+                  ? "Autosaving..."
+                  : autosaveState === "queued"
+                    ? "Autosave queued"
+                    : autosaveState === "saved"
+                      ? "Saved"
+                      : "Autosave ready"}
+              </span>
+            </div>
           </div>
           <div className="editor-workbar-actions">
             <span className={`publish-status ${selected?.is_published ?? true ? "is-live" : "is-draft"}`}>
@@ -200,14 +266,34 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
 
         <input name="id" type="hidden" value={selected?.id || ""} />
         <input name="type" type="hidden" value={activeType} />
+        <button
+          aria-hidden="true"
+          className="editor-hidden-submit"
+          name="publish_action"
+          ref={autosaveButtonRef}
+          tabIndex={-1}
+          type="submit"
+          value="autosave"
+        />
 
         <div className="editor-inspector-row">
-          <details className="editor-document-options" open={!selected}>
-            <summary>Document details</summary>
+          <details className="editor-document-options glass-dropdown" open={!selected}>
+            <summary>
+              <span>Document details</span>
+              <small>Slug, category, summary</small>
+            </summary>
             <div className="editor-metadata-grid">
               <label>
                 Slug
-                <input name="slug" required value={slug} onChange={(event) => setSlug(slugify(event.target.value))} />
+                <input
+                  name="slug"
+                  required
+                  value={slug}
+                  onChange={(event) => {
+                    setSlug(slugify(event.target.value));
+                    markDirty();
+                  }}
+                />
               </label>
               <label>
                 Category
@@ -220,8 +306,11 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
             </div>
           </details>
 
-          <details className="editor-document-options">
-            <summary>Publishing and card</summary>
+          <details className="editor-document-options glass-dropdown">
+            <summary>
+              <span>Publishing and card</span>
+              <small>Tags, image, visibility</small>
+            </summary>
             <div className="editor-publishing-grid">
               <label>
                 Tags
@@ -249,7 +338,13 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
 
         <div className="editor-shell">
           <input name="body" type="hidden" value={body} readOnly />
-          <RichArticleEditor content={body} onChange={setBody} />
+          <RichArticleEditor
+            content={body}
+            onChange={(html) => {
+              setBody(html);
+              markDirty();
+            }}
+          />
         </div>
       </form>
     </div>
