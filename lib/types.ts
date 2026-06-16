@@ -20,4 +20,5 @@ export type ContentItem = {
 export type ContentFormState = {
   ok: boolean;
   message: string;
+  item?: ContentItem | null;
 };

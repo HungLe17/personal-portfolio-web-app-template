@@ -253,6 +253,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
     <div className="rich-editor">
       <div className="editor-menubar" role="toolbar" aria-label="Article formatting">
         <div className="editor-command-group">
+          <span className="editor-command-label">History</span>
           <ToolbarButton label="Undo" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
             <Undo2 size={17} />
           </ToolbarButton>
@@ -262,6 +263,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
         </div>
 
         <div className="editor-command-group">
+          <span className="editor-command-label">Block</span>
           <ToolbarButton label="Paragraph" active={editor.isActive("paragraph")} onClick={() => editor.chain().focus().setParagraph().run()}>
             <Pilcrow size={17} />
           </ToolbarButton>
@@ -274,6 +276,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
         </div>
 
         <div className="editor-command-group">
+          <span className="editor-command-label">Text</span>
           <ToolbarButton label="Bold" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>
             <Bold size={17} />
           </ToolbarButton>
@@ -298,6 +301,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
         </div>
 
         <div className="editor-command-group">
+          <span className="editor-command-label">Lists</span>
           <ToolbarButton label="Bullet list" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>
             <List size={18} />
           </ToolbarButton>
@@ -313,6 +317,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
         </div>
 
         <div className="editor-command-group">
+          <span className="editor-command-label">Align</span>
           <ToolbarButton label="Align left" active={editor.isActive({ textAlign: "left" })} onClick={() => editor.chain().focus().setTextAlign("left").run()}>
             <AlignLeft size={18} />
           </ToolbarButton>
@@ -325,6 +330,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
         </div>
 
         <div className="editor-command-group">
+          <span className="editor-command-label">Insert</span>
           <ToolbarButton label="Link" active={editor.isActive("link")} onClick={setLink}>
             <Link2 size={17} />
           </ToolbarButton>
@@ -348,6 +354,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
 
         {imageSelected ? (
           <div className="editor-command-group editor-image-tools">
+            <span className="editor-command-label">Image</span>
             <button type="button" onClick={() => updateImage("left", "medium")}>Left</button>
             <button type="button" onClick={() => updateImage("center", "wide")}>Center</button>
             <button type="button" onClick={() => updateImage("right", "medium")}>Right</button>
@@ -357,6 +364,7 @@ export function RichArticleEditor({ content, onChange }: RichArticleEditorProps)
 
         {editor.isActive("table") ? (
           <div className="editor-command-group editor-table-tools">
+            <span className="editor-command-label">Table</span>
             <button type="button" onClick={() => editor.chain().focus().addColumnAfter().run()}>+ Column</button>
             <button type="button" onClick={() => editor.chain().focus().deleteColumn().run()}>- Column</button>
             <button type="button" onClick={() => editor.chain().focus().addRowAfter().run()}>+ Row</button>

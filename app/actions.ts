@@ -7,7 +7,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEMO_AUTH_COOKIE, isDemoCredentials, isDemoLoginEnabled } from "@/lib/demo-auth";
 import { slugify } from "@/lib/slug";
 import { seedContent } from "@/lib/seed";
-import type { ContentFormState, ContentType } from "@/lib/types";
+import type { ContentFormState, ContentItem, ContentType } from "@/lib/types";
 
 function tagsFromForm(value: FormDataEntryValue | null) {
   return String(value || "")
@@ -97,6 +97,17 @@ export async function saveContentAction(_state: ContentFormState, formData: Form
   const type = String(formData.get("type") || "project") as ContentType;
   const title = String(formData.get("title") || "").trim();
   const slug = slugify(String(formData.get("slug") || title));
+  const publishAction = String(formData.get("publish_action") || "save");
+  const isPublished =
+    publishAction === "publish"
+      ? true
+      : publishAction === "draft"
+        ? false
+        : boolFromForm(formData.get("is_published"));
+
+  if (!title) return { ok: false, message: "Add a title before saving." };
+  if (!slug) return { ok: false, message: "Add a valid slug before saving." };
+
   const payload = {
     type,
     slug,
@@ -108,21 +119,28 @@ export async function saveContentAction(_state: ContentFormState, formData: Form
     link: String(formData.get("link") || "").trim(),
     image: String(formData.get("image") || "").trim(),
     sort_order: Number(formData.get("sort_order") || 0),
-    is_published: boolFromForm(formData.get("is_published"))
+    is_published: isPublished
   };
 
   const query = id && isUuid(id)
-    ? supabase.from("content_items").update(payload).eq("id", id)
-    : supabase.from("content_items").insert(payload);
+    ? supabase.from("content_items").update(payload).eq("id", id).select("*").single()
+    : supabase.from("content_items").insert(payload).select("*").single();
 
-  const { error } = await query;
-  if (error) return { ok: false, message: error.message };
+  const { data, error } = await query;
+  if (error) {
+    const message = error.code === "23505" ? "That slug is already used. Choose a unique slug." : error.message;
+    return { ok: false, message };
+  }
 
   revalidatePath("/");
   revalidatePath("/admin");
   revalidateTag("portfolio-content");
   revalidatePath(`/${type === "project" ? "projects" : type === "post" ? "posts" : "sections"}/${slug}`);
-  return { ok: true, message: "Saved." };
+  return {
+    ok: true,
+    message: isPublished ? "Published to Supabase." : "Saved as draft.",
+    item: data as ContentItem
+  };
 }
 
 export async function deleteContentAction(formData: FormData) {

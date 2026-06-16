@@ -1,10 +1,12 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { AlertCircle, CheckCircle2, Loader2, Rocket, Save } from "lucide-react";
 import dynamic from "next/dynamic";
+import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { deleteContentAction, saveContentAction } from "@/app/actions";
-import type { ContentItem, ContentType } from "@/lib/types";
+import type { ContentFormState, ContentItem, ContentType } from "@/lib/types";
 import { slugify } from "@/lib/slug";
 
 const RichArticleEditor = dynamic(
@@ -22,7 +24,34 @@ const tabs: { label: string; value: ContentType }[] = [
   { label: "Posts", value: "post" }
 ];
 
-const initialState = { ok: true, message: "" };
+const initialState: ContentFormState = { ok: true, message: "", item: null };
+
+function EditorSubmitButton({
+  children,
+  icon,
+  intent,
+  variant = "secondary"
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  intent: "save" | "draft" | "publish";
+  variant?: "primary" | "secondary";
+}) {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      className={`liquid-button ${variant} editor-save-button`}
+      disabled={pending}
+      name="publish_action"
+      type="submit"
+      value={intent}
+    >
+      {pending ? <Loader2 className="button-spinner" aria-hidden="true" size={16} /> : icon}
+      <span>{pending ? "Saving..." : children}</span>
+    </button>
+  );
+}
 
 export function AdminEditor({ items }: { items: ContentItem[] }) {
   const initialItem =
@@ -36,6 +65,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
   const [slug, setSlug] = useState(initialItem?.slug || "");
   const [body, setBody] = useState(initialItem?.body || "");
   const [state, formAction] = useActionState(saveContentAction, initialState);
+  const [notice, setNotice] = useState<ContentFormState>(initialState);
 
   const activeItems = useMemo(
     () => items.filter((item) => item.type === activeType).sort((a, b) => a.sort_order - b.sort_order),
@@ -44,10 +74,24 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
   const activeTabIndex = Math.max(0, tabs.findIndex((tab) => tab.value === activeType));
 
   useEffect(() => {
-    if (state.ok && state.message) {
+    if (!state.message) return;
+    setNotice(state);
+
+    if (state.ok && state.item) {
+      setSelected(state.item);
+      setActiveType(state.item.type);
+      setTitle(state.item.title);
+      setSlug(state.item.slug);
+      setBody(state.item.body || "");
       router.refresh();
     }
   }, [router, state]);
+
+  useEffect(() => {
+    if (!notice.message) return;
+    const timer = window.setTimeout(() => setNotice(initialState), notice.ok ? 3600 : 5600);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   function editItem(item: ContentItem) {
     setSelected(item);
@@ -65,6 +109,16 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
 
   return (
     <div className="admin-editor">
+      {notice.message ? (
+        <div className={`editor-toast ${notice.ok ? "is-success" : "is-error"}`} role="status" aria-live="polite">
+          {notice.ok ? <CheckCircle2 aria-hidden="true" size={18} /> : <AlertCircle aria-hidden="true" size={18} />}
+          <span>{notice.message}</span>
+          <button type="button" onClick={() => setNotice(initialState)} aria-label="Dismiss notification">
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       <aside className="admin-sidebar">
         <div
           className={`admin-tabs segmented-slider segments-4 is-${activeType === "section" ? "sections" : activeType === "project" ? "projects" : activeType === "post" ? "posts" : "intro"}`}
@@ -132,10 +186,15 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
             />
           </div>
           <div className="editor-workbar-actions">
-            {state.message ? <p className={state.ok ? "form-success" : "form-error"}>{state.message}</p> : null}
-            <button className="liquid-button primary editor-save-button" type="submit">
-              Save
-            </button>
+            <span className={`publish-status ${selected?.is_published ?? true ? "is-live" : "is-draft"}`}>
+              {selected?.is_published ?? true ? "Live" : "Draft"}
+            </span>
+            <EditorSubmitButton intent="draft" icon={<Save aria-hidden="true" size={16} />}>
+              Save Draft
+            </EditorSubmitButton>
+            <EditorSubmitButton intent="publish" icon={<Rocket aria-hidden="true" size={16} />} variant="primary">
+              Publish
+            </EditorSubmitButton>
           </div>
         </div>
 
@@ -182,7 +241,7 @@ export function AdminEditor({ items }: { items: ContentItem[] }) {
               </label>
               <label className="checkbox-label">
                 <input name="is_published" type="checkbox" defaultChecked={selected?.is_published ?? true} />
-                Published
+                Include in public site when using regular Save
               </label>
             </div>
           </details>
