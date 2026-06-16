@@ -1,18 +1,23 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { importSeedContentAction, signInAction, signOutAction } from "@/app/actions";
 import { AdminEditor } from "@/components/admin-editor";
 import { getContentItems } from "@/lib/content";
 import { createSupabaseServerClient, hasSupabaseEnv } from "@/lib/supabase/server";
+import { DEMO_AUTH_COOKIE, isDemoLoginEnabled } from "@/lib/demo-auth";
+import { seedContent } from "@/lib/seed";
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const envReady = hasSupabaseEnv();
+  const cookieStore = await cookies();
+  const demoMode = isDemoLoginEnabled() && cookieStore.get(DEMO_AUTH_COOKIE)?.value === "active";
   const supabase = await createSupabaseServerClient();
   const {
     data: { user }
   } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
 
-  if (!envReady) {
+  if (!envReady && !isDemoLoginEnabled()) {
     return (
       <main className="admin-page section-shell">
         <section className="glass-panel admin-shell no-glass-hover">
@@ -30,7 +35,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     );
   }
 
-  if (!user) {
+  if (!user && !demoMode) {
     return (
       <main className="admin-page section-shell">
         <form className="glass-panel admin-shell no-glass-hover" action={signInAction}>
@@ -39,11 +44,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           {error ? <p className="form-error">Sign in failed: {error}</p> : null}
           <label>
             Username
-            <input name="username" type="text" autoComplete="username" required />
+            <input name="username" type="text" autoComplete="username" defaultValue={isDemoLoginEnabled() ? "dev" : ""} required />
           </label>
           <label>
             Password
-            <input name="password" type="password" autoComplete="current-password" required />
+            <input name="password" type="password" autoComplete="current-password" defaultValue={isDemoLoginEnabled() ? "dev" : ""} required />
           </label>
           <button className="liquid-button primary" type="submit">
             Sign in
@@ -53,28 +58,32 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     );
   }
 
-  const items = await getContentItems({ includeUnpublished: true });
+  const items = demoMode ? seedContent : await getContentItems({ includeUnpublished: true });
 
   return (
-    <main className="admin-page section-shell">
-      <section className="glass-panel admin-shell no-glass-hover">
+    <main className="admin-page admin-workspace-page">
+      <section className="admin-shell admin-workspace-shell">
         <div className="admin-topbar">
           <div>
-            <p className="eyebrow">Admin</p>
+            <p className="eyebrow">Publishing workspace</p>
             <h1>Content Manager</h1>
           </div>
-          <form action={signOutAction}>
+          {demoMode ? (
+            <p className="admin-session-note">Demo session. Changes are not saved.</p>
+          ) : (
+            <form action={importSeedContentAction} className="admin-seed-action">
+              <span>Need placeholder content?</span>
+              <button className="mini-button" type="submit">
+                Import
+              </button>
+            </form>
+          )}
+          <form action={signOutAction} className="admin-signout">
             <button className="liquid-button secondary" type="submit">
               Sign out
             </button>
           </form>
         </div>
-        <form action={importSeedContentAction} className="seed-import">
-          <p className="form-hint">New Supabase project? Import the placeholder portfolio content, then edit it below.</p>
-          <button className="mini-button" type="submit">
-            Import Seed Content
-          </button>
-        </form>
         <AdminEditor items={items} />
       </section>
     </main>

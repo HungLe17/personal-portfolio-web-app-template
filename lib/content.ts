@@ -1,10 +1,75 @@
 import { notFound } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, hasSupabaseEnv } from "./supabase/server";
 import { seedContent } from "./seed";
 import type { ContentItem, ContentType } from "./types";
 
 const typeOrder: ContentType[] = ["intro", "section", "project", "post"];
+const CONTENT_CACHE_TAG = "portfolio-content";
+const PUBLIC_CONTENT_TIMEOUT_MS = 1800;
+
+function withTimeout<T>(operation: PromiseLike<T>, timeoutMs = PUBLIC_CONTENT_TIMEOUT_MS) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Content request timed out.")), timeoutMs);
+    Promise.resolve(operation).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+function createPublicSupabaseClient() {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch(input, init = {}) {
+        return fetch(input, {
+          ...init,
+          signal: init.signal || AbortSignal.timeout(3000)
+        });
+      }
+    }
+  });
+}
+
+const getPublishedContent = unstable_cache(
+  async () => {
+    const supabase = createPublicSupabaseClient();
+    const { data, error } = await withTimeout(
+      supabase.from("content_items").select("*").eq("is_published", true).order("sort_order", { ascending: true })
+    );
+    if (error || !data?.length) throw error || new Error("No published content.");
+    return data as ContentItem[];
+  },
+  ["published-content"],
+  { revalidate: 60, tags: [CONTENT_CACHE_TAG] }
+);
+
+const getPublishedContentBySlug = unstable_cache(
+  async (type: ContentType, slug: string) => {
+    const supabase = createPublicSupabaseClient();
+    const { data, error } = await withTimeout(
+      supabase
+        .from("content_items")
+        .select("*")
+        .eq("type", type)
+        .eq("slug", slug)
+        .eq("is_published", true)
+        .maybeSingle()
+    );
+    if (error) throw error;
+    return (data as ContentItem | null) || null;
+  },
+  ["published-content-by-slug"],
+  { revalidate: 60, tags: [CONTENT_CACHE_TAG] }
+);
 
 export function getRouteForItem(item: ContentItem) {
   if (item.type === "project") return `/projects/${item.slug}`;
@@ -25,25 +90,18 @@ export async function getContentItems(options?: { includeUnpublished?: boolean }
     return seedContent.filter((item) => options?.includeUnpublished || item.is_published);
   }
 
-  const supabase = options?.includeUnpublished
-    ? await createSupabaseServerClient()
-    : createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-        auth: { persistSession: false, autoRefreshToken: false }
-      });
-
-  if (!supabase) return seedContent;
-
-  let query = supabase.from("content_items").select("*").order("sort_order", { ascending: true });
   if (!options?.includeUnpublished) {
-    query = query.eq("is_published", true);
+    try {
+      return await getPublishedContent();
+    } catch {
+      return seedContent.filter((item) => item.is_published);
+    }
   }
 
-  const { data, error } = await query;
-  if (error || !data?.length) {
-    return seedContent.filter((item) => options?.includeUnpublished || item.is_published);
-  }
-
-  return data as ContentItem[];
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return seedContent;
+  const { data, error } = await supabase.from("content_items").select("*").order("sort_order", { ascending: true });
+  return error || !data?.length ? seedContent : (data as ContentItem[]);
 }
 
 export async function getContentByType(type: ContentType, options?: { includeUnpublished?: boolean }) {
@@ -54,8 +112,15 @@ export async function getContentByType(type: ContentType, options?: { includeUnp
 }
 
 export async function getContentBySlug(type: ContentType, slug: string) {
-  const items = await getContentByType(type);
-  const item = items.find((entry) => entry.slug === slug);
+  let item: ContentItem | null | undefined;
+  if (hasSupabaseEnv()) {
+    try {
+      item = await getPublishedContentBySlug(type, slug);
+    } catch {
+      item = undefined;
+    }
+  }
+  item ||= seedContent.find((entry) => entry.type === type && entry.slug === slug && entry.is_published);
   if (!item) notFound();
   return item;
 }

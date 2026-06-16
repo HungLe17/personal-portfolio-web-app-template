@@ -1,52 +1,79 @@
 "use client";
 
 import Link from "next/link";
-import { Moon, Settings, Shield, Sun } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Settings, Shield } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { AppearanceSettings } from "@/components/appearance-settings";
+import {
+  applyAppearance,
+  defaultAppearance,
+  readAppearance,
+  resolveTheme,
+  type AppearancePreferences
+} from "@/lib/appearance";
 
 const navItems = [
+  { href: "/#top", label: "Home", state: "is-home" },
   { href: "/#work", label: "Work", state: "is-work" },
   { href: "/#posts", label: "Posts", state: "is-posts" },
   { href: "/#contact", label: "Contact", state: "is-contact" }
 ];
+const sectionMap = new Map(navItems.map((item) => [item.href.replace("/#", ""), item.state]));
 
 export function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const [hidden, setHidden] = useState(false);
   const [compact, setCompact] = useState(false);
-  const [navEngaged, setNavEngaged] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [activeState, setActiveState] = useState("is-work");
-  const sectionMap = useMemo(() => new Map(navItems.map((item) => [item.href.replace("/#", ""), item.state])), []);
+  const [preferences, setPreferences] = useState<AppearancePreferences>(defaultAppearance);
+  const [activeState, setActiveState] = useState("is-home");
+  const headerRef = useRef<HTMLElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const hiddenRef = useRef(false);
+  const compactRef = useRef(false);
 
   useEffect(() => {
     let lastY = window.scrollY;
     let distanceSinceToggle = 0;
     let ticking = false;
+    let frame = 0;
+
+    function updateHidden(next: boolean) {
+      if (hiddenRef.current === next) return;
+      hiddenRef.current = next;
+      setHidden(next);
+    }
+
+    function updateCompact(next: boolean) {
+      if (compactRef.current === next) return;
+      compactRef.current = next;
+      setCompact(next);
+    }
 
     function update() {
       const currentY = window.scrollY;
       const delta = currentY - lastY;
-      const nearTop = currentY < 80;
+      const nearTop = currentY < 120;
+      const scrollRange = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+      headerRef.current?.style.setProperty("--page-progress", String(Math.min(1, currentY / scrollRange)));
 
-      setCompact(currentY > 24);
+      updateCompact(currentY > 24);
 
       if (nearTop) {
         distanceSinceToggle = 0;
-        setHidden(false);
+        updateHidden(false);
       } else if (delta < -1) {
         distanceSinceToggle = Math.min(distanceSinceToggle, 0) + delta;
         if (distanceSinceToggle <= -10) {
-          setHidden(false);
+          updateHidden(false);
           distanceSinceToggle = 0;
         }
       } else if (delta > 1) {
         distanceSinceToggle = Math.max(distanceSinceToggle, 0) + delta;
-        if (distanceSinceToggle >= 34) {
-          setHidden(true);
+        if (currentY > 260 && distanceSinceToggle >= 200) {
+          updateHidden(true);
           distanceSinceToggle = 0;
         }
       }
@@ -57,33 +84,49 @@ export function Header() {
 
     function onScroll() {
       if (!ticking) {
-        requestAnimationFrame(update);
+        frame = requestAnimationFrame(update);
         ticking = true;
       }
     }
 
+    update();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   useEffect(() => {
+    hiddenRef.current = false;
     setHidden(false);
     const hashState = sectionMap.get(window.location.hash.replace("#", ""));
     if (hashState) setActiveState(hashState);
-  }, [pathname, sectionMap]);
+  }, [pathname]);
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem("portfolio-theme") === "light" ? "light" : "dark";
-    setTheme(savedTheme);
-    document.documentElement.dataset.theme = savedTheme;
+    const savedPreferences = readAppearance();
+    setPreferences(savedPreferences);
+    applyAppearance(savedPreferences);
+
+    function onAppearance(event: Event) {
+      setPreferences((event as CustomEvent<AppearancePreferences>).detail);
+    }
+
+    window.addEventListener("portfolio:appearance", onAppearance);
+    return () => window.removeEventListener("portfolio:appearance", onAppearance);
   }, []);
 
-  function toggleTheme() {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    window.localStorage.setItem("portfolio-theme", nextTheme);
-    document.documentElement.dataset.theme = nextTheme;
-  }
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    function onSystemThemeChange() {
+      if (preferences.theme === "system") {
+        document.documentElement.dataset.theme = resolveTheme("system");
+      }
+    }
+    media.addEventListener("change", onSystemThemeChange);
+    return () => media.removeEventListener("change", onSystemThemeChange);
+  }, [preferences.theme]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -106,72 +149,78 @@ export function Header() {
     });
 
     return () => observer.disconnect();
-  }, [sectionMap]);
+  }, []);
 
   const headerClass = [
     "site-header glass-panel",
-    hidden && !navEngaged ? "header-hidden" : "",
+    hidden && !settingsOpen ? "header-hidden" : "",
     compact ? "header-compact" : ""
   ]
     .filter(Boolean)
     .join(" ");
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const activeNavIndex = Math.max(0, navItems.findIndex((item) => item.state === activeState));
 
   return (
-    <header
-      className={headerClass}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setNavEngaged(false);
-      }}
-      onFocus={() => setNavEngaged(true)}
-      onMouseEnter={() => setNavEngaged(true)}
-      onMouseLeave={() => setNavEngaged(false)}
-    >
-      <Link className="brand" href="/" aria-label="Back to home">
-        <span className="brand-mark">P</span>
-        <span>Portfolio</span>
-      </Link>
-      <nav className={`main-nav ${activeState}`} aria-label="Primary navigation">
-        {navItems.map((item) => (
-          <Link
-            className={activeState === item.state ? "active" : ""}
-            href={item.href}
-            key={item.href}
-            onFocus={() => setActiveState(item.state)}
-            onMouseEnter={() => {
-              setActiveState(item.state);
-              router.prefetch("/");
-            }}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
-      <div className="header-tools">
-        <button
-          className="icon-button"
-          onClick={() => setSettingsOpen((open) => !open)}
-          type="button"
-          aria-expanded={settingsOpen}
-          aria-label="Open site settings"
-        >
-          <Settings aria-hidden="true" size={19} />
-        </button>
-        <Link className="icon-button" href="/admin" aria-label="Open admin">
-          <Shield aria-hidden="true" size={19} />
+    <>
+      <header
+        className={headerClass}
+        ref={headerRef}
+        data-glass-priority="3"
+      >
+        <Link className="brand" href="/" aria-label="Back to home">
+          <span className="brand-mark">P</span>
+          <span>Portfolio</span>
         </Link>
-        {settingsOpen ? (
-          <div className="settings-popover glass-panel">
-            <div>
-              <p className="eyebrow">Settings</p>
-              <strong>Appearance</strong>
-            </div>
-            <button className="theme-toggle" onClick={toggleTheme} type="button">
-              {theme === "dark" ? <Moon aria-hidden="true" size={17} /> : <Sun aria-hidden="true" size={17} />}
-              <span>{theme === "dark" ? "Dark mode" : "Light mode"}</span>
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </header>
+        <nav
+          className={`main-nav segmented-slider segments-4 ${activeState}`}
+          style={
+            {
+              "--segment-count": navItems.length,
+              "--segment-index": activeNavIndex
+            } as CSSProperties
+          }
+          aria-label="Primary navigation"
+        >
+          {navItems.map((item) => (
+            <Link
+              className={activeState === item.state ? "active" : ""}
+              href={item.href}
+              key={item.href}
+              onClick={() => setActiveState(item.state)}
+              onMouseEnter={() => {
+                router.prefetch("/");
+              }}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="header-tools">
+          <button
+            className="icon-button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            ref={settingsButtonRef}
+            type="button"
+            aria-expanded={settingsOpen}
+            aria-haspopup="dialog"
+            aria-label="Open site settings"
+          >
+            <Settings aria-hidden="true" size={19} />
+          </button>
+          <Link className="icon-button" href="/admin" aria-label="Open admin">
+            <Shield aria-hidden="true" size={19} />
+          </Link>
+        </div>
+        <span className="header-progress" aria-hidden="true" />
+      </header>
+      <AppearanceSettings
+        anchorRef={settingsButtonRef}
+        open={settingsOpen}
+        onClose={closeSettings}
+        preferences={preferences}
+        onChange={setPreferences}
+      />
+    </>
   );
 }

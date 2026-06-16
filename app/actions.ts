@@ -1,8 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { DEMO_AUTH_COOKIE, isDemoCredentials, isDemoLoginEnabled } from "@/lib/demo-auth";
 import { slugify } from "@/lib/slug";
 import { seedContent } from "@/lib/seed";
 import type { ContentFormState, ContentType } from "@/lib/types";
@@ -34,14 +36,27 @@ function usernameToAuthEmail(username: string) {
 }
 
 export async function signInAction(formData: FormData) {
+  const username = String(formData.get("username") || "");
+  const password = String(formData.get("password") || "");
+
+  if (isDemoCredentials(username, password)) {
+    const cookieStore = await cookies();
+    cookieStore.set(DEMO_AUTH_COOKIE, "active", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 8,
+      path: "/"
+    });
+    redirect("/admin");
+  }
+
   const supabase = await createSupabaseServerClient();
   if (!supabase) {
     redirect("/admin?error=missing-supabase-env");
   }
 
-  const username = String(formData.get("username") || "");
   const email = usernameToAuthEmail(username);
-  const password = String(formData.get("password") || "");
 
   if (!email) {
     redirect("/admin?error=Enter a valid username.");
@@ -57,12 +72,19 @@ export async function signInAction(formData: FormData) {
 }
 
 export async function signOutAction() {
+  const cookieStore = await cookies();
+  cookieStore.delete(DEMO_AUTH_COOKIE);
   const supabase = await createSupabaseServerClient();
   await supabase?.auth.signOut();
   redirect("/admin");
 }
 
 export async function saveContentAction(_state: ContentFormState, formData: FormData): Promise<ContentFormState> {
+  const cookieStore = await cookies();
+  if (isDemoLoginEnabled() && cookieStore.get(DEMO_AUTH_COOKIE)?.value === "active") {
+    return { ok: true, message: "Demo mode: formatting works, but changes are not persisted." };
+  }
+
   const supabase = await createSupabaseServerClient();
   if (!supabase) return { ok: false, message: "Supabase env vars are missing. Add .env.local before saving." };
 
@@ -98,11 +120,17 @@ export async function saveContentAction(_state: ContentFormState, formData: Form
 
   revalidatePath("/");
   revalidatePath("/admin");
+  revalidateTag("portfolio-content");
   revalidatePath(`/${type === "project" ? "projects" : type === "post" ? "posts" : "sections"}/${slug}`);
   return { ok: true, message: "Saved." };
 }
 
 export async function deleteContentAction(formData: FormData) {
+  const cookieStore = await cookies();
+  if (isDemoLoginEnabled() && cookieStore.get(DEMO_AUTH_COOKIE)?.value === "active") {
+    redirect("/admin");
+  }
+
   const supabase = await createSupabaseServerClient();
   if (!supabase) redirect("/admin?error=missing-supabase-env");
 
@@ -118,10 +146,16 @@ export async function deleteContentAction(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath("/admin");
+  revalidateTag("portfolio-content");
   redirect("/admin");
 }
 
 export async function importSeedContentAction() {
+  const cookieStore = await cookies();
+  if (isDemoLoginEnabled() && cookieStore.get(DEMO_AUTH_COOKIE)?.value === "active") {
+    redirect("/admin");
+  }
+
   const supabase = await createSupabaseServerClient();
   if (!supabase) redirect("/admin?error=missing-supabase-env");
 
@@ -135,5 +169,6 @@ export async function importSeedContentAction() {
 
   revalidatePath("/");
   revalidatePath("/admin");
+  revalidateTag("portfolio-content");
   redirect("/admin");
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CardGrid } from "@/components/card-grid";
 import { Reveal } from "@/components/reveal";
+import { StackShowcase } from "@/components/stack-showcase";
 import { getContentItems, findIntro } from "@/lib/content";
 
 export default async function HomePage() {
@@ -30,23 +31,8 @@ export default async function HomePage() {
           </div>
         </Reveal>
 
-        <Reveal className="hero-orbit glass-panel">
-          <div className="orbital-ring" />
-          <div className="metric-card top">
-            <span>Stack</span>
-            <strong>Next.js</strong>
-          </div>
-          <div className="metric-card bottom">
-            <span>Backend</span>
-            <strong>Supabase</strong>
-          </div>
-          <div className="liquid-core">
-            <span>
-              Liquid
-              <br />
-              Glass
-            </span>
-          </div>
+        <Reveal className="hero-orbit glass-panel" dataGlassDisabled>
+          <StackShowcase />
         </Reveal>
       </section>
 
